@@ -226,7 +226,7 @@ public class CssCompressor {
         // But, be careful not to turn "p :link {...}" into "p:link{...}"
         // Swap out any pseudo-class colons with the token, and then swap back.
         sb = new StringBuffer();
-        p = Pattern.compile("(^|\\})(([^\\{:])+:)+([^\\{]*\\{)");
+        p = Pattern.compile("(^|\\})((^|([^\\{:])+):)+([^\\{]*\\{)");
         m = p.matcher(css);
         while (m.find()) {
             String s = m.group();
@@ -328,15 +328,47 @@ public class CssCompressor {
         // remove unnecessary semicolons
         css = css.replaceAll(";+}", "}");
 
-        // Replace 0(px,em,%) with 0.
-        css = css.replaceAll("(?i)(^|[^.0-9])(?:0?\\.)?0(?:px|em|%|in|cm|mm|pc|pt|ex|deg|g?rad|m?s|k?hz)", "$10");
+        // Replace 0(px,em) with 0. (don't replace seconds are they are needed for transitions to be valid)
+        String oldCss;
+        p = Pattern.compile("(?i)(^|: ?)((?:[0-9a-z-.]+ )*?)?(?:0?\\.)?0(?:px|em|in|cm|mm|pc|pt|ex|deg|g?rad|k?hz)");
+        do {
+          oldCss = css;
+          m = p.matcher(css);
+          css = m.replaceAll("$1$20");
+        } while (!(css.equals(oldCss)));
+        
+        // We do the same with % but don't replace the 0% in keyframes
+        String oldCss;
+        p = Pattern.compile("(?i)(: ?)((?:[0-9a-z-.]+ )*?)?(?:0?\\.)?0(?:%)");
+        do {
+          oldCss = css;
+          m = p.matcher(css);
+          css = m.replaceAll("$1$20");
+        } while (!(css.equals(oldCss)));
+        
+        //Replace the keyframe 100% step with 'to' which is shorter
+        p = Pattern.compile("(?i)(^|,|{) ?(?:100% ?{)");
+        do {
+          oldCss = css;
+          m = p.matcher(css);
+          css = m.replaceAll("$1to{");
+        } while (!(css.equals(oldCss)));
+
+        // Replace 0(px,em,%) with 0 inside groups (e.g. -MOZ-RADIAL-GRADIENT(CENTER 45DEG, CIRCLE CLOSEST-SIDE, ORANGE 0%, RED 100%))
+        p = Pattern.compile("(?i)\\( ?((?:[0-9a-z-.]+[ ,])*)?(?:0?\\.)?0(?:px|em|%|in|cm|mm|pc|pt|ex|deg|g?rad|m?s|k?hz)");
+        do {
+          oldCss = css;
+          m = p.matcher(css);
+          css = m.replaceAll("($10");
+        } while (!(css.equals(oldCss)));
+
         // Replace x.0(px,em,%) with x(px,em,%).
-        css = css.replaceAll("([0-9])\\.0(px|em|%|in|cm|mm|pc|pt|ex|deg|g?rad|m?s|k?hz| |;)", "$1$2");
+        css = css.replaceAll("([0-9])\\.0(px|em|%|in|cm|mm|pc|pt|ex|deg|m?s|g?rad|k?hz| |;)", "$1$2");
 
         // Replace 0 0 0 0; with 0.
         css = css.replaceAll(":0 0 0 0(;|})", ":0$1");
         css = css.replaceAll(":0 0 0(;|})", ":0$1");
-        css = css.replaceAll(":0 0(;|})", ":0$1");
+        css = css.replaceAll("(?<!flex):0 0(;|})", ":0$1");
 
 
         // Replace background-position:0; with background-position:0 0;
@@ -486,6 +518,25 @@ public class CssCompressor {
         for(i = 0, max = preservedTokens.size(); i < max; i++) {
             css = css.replace("___YUICSSMIN_PRESERVED_TOKEN_" + i + "___", preservedTokens.get(i).toString());
         }
+        
+        // Add spaces back in between operators for css calc function
+        // https://developer.mozilla.org/en-US/docs/Web/CSS/calc
+        // Added by Eric Arnol-Martin (earnolmartin@gmail.com)
+        sb = new StringBuffer();
+        p = Pattern.compile("calc\\([^\\)]*\\)");
+        m = p.matcher(css);
+        while (m.find()) {
+            String s = m.group();
+            
+            s = s.replaceAll("(?<=[-|%|px|em|rem|vw|\\d]+)\\+", " + ");
+            s = s.replaceAll("(?<=[-|%|px|em|rem|vw|\\d]+)\\-", " - ");
+            s = s.replaceAll("(?<=[-|%|px|em|rem|vw|\\d]+)\\*", " * ");
+            s = s.replaceAll("(?<=[-|%|px|em|rem|vw|\\d]+)\\/", " / ");
+            
+            m.appendReplacement(sb, s);
+        }
+        m.appendTail(sb);
+        css = sb.toString(); 
 
         // Trim the final string (for any leading or trailing white spaces)
         css = css.trim();
